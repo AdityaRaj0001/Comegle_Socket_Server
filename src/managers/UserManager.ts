@@ -153,6 +153,7 @@ export class UserManager {
       this.roomManager.onIceCandidates(roomId, socket.id, candidate, type);
     });
 
+
     socket.on("toggle-video", ({ enabled }) => {
       const peerSocket = this.roomManager.getPeerSocketBySocketId(socket.id);
       if (!peerSocket) return;
@@ -164,5 +165,25 @@ export class UserManager {
       if (!peerSocket) return;
       peerSocket.emit("peer-audio-toggled", { enabled });
     });
+
+    // -- Add this chat handler inside UserManager.initHandlers(socket) --
+
+socket.on("chat-message", ({ roomId, message }) => {
+  // Find the room
+  const foundRoom = this.roomManager.getRoomBySocketId(socket.id);
+  if (!foundRoom) return;
+
+  // Find sender and peer
+  const sender = foundRoom.room.user1.socket.id === socket.id ? foundRoom.room.user1 : foundRoom.room.user2;
+  const peer = foundRoom.room.user1.socket.id === socket.id ? foundRoom.room.user2 : foundRoom.room.user1;
+
+  // Relay the chat message to the peer
+  peer.socket.emit("chat-message", {
+    senderName: sender.name,
+    senderId: sender.socket.id,
+    message,
+    timestamp: Date.now(),
+  });
+});
   }
 }

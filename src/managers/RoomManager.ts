@@ -96,8 +96,8 @@ export class RoomManager {
       room.user1.socket.id === senderSocketid ? room.user1 : room.user2;
 
     // Emit peerName to both users at offer stage
-    sendingUser.socket.emit("matched", { peerName: receivingUser.name });
-    receivingUser.socket.emit("matched", { peerName: sendingUser.name });
+    sendingUser.socket.emit("matched", { peerName: receivingUser.name, roomId });
+    receivingUser.socket.emit("matched", { peerName: sendingUser.name, roomId });
 
     receivingUser?.socket.emit("offer", {
       sdp,
