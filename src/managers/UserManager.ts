@@ -1,11 +1,11 @@
 import { Socket } from "socket.io";
 import { RoomManager } from "./RoomManager";
 
-export interface User{
-  name:string;
-  college:string;
-  gender:string;
-  socket:Socket;
+export interface User {
+  name: string;
+  college: string;
+  gender: string;
+  socket: Socket;
 }
 
 export class UserManager {
@@ -22,6 +22,11 @@ export class UserManager {
   // getUserBySocketId(socketId: string): User | null {
   //   return this.users.find((user) => user.socket.id === socketId) || null;
   // }
+
+  //make a function to return the length of users array
+  getUserCount(): number {
+    return this.users.length - 1;
+  }
 
   addUser(user: User, socket: Socket) {
     this.users.push({
@@ -90,7 +95,7 @@ export class UserManager {
       this.queue.push(peerSocket.id);
       this.clearQueue();
     }
-
+    this.removeUser(socketId);
     console.log(`User ${socketId} exited lobby.`);
   }
 
@@ -155,7 +160,6 @@ export class UserManager {
       this.roomManager.onIceCandidates(roomId, socket.id, candidate, type);
     });
 
-
     socket.on("toggle-video", ({ enabled }) => {
       const peerSocket = this.roomManager.getPeerSocketBySocketId(socket.id);
       if (!peerSocket) return;
@@ -170,22 +174,28 @@ export class UserManager {
 
     // -- Add this chat handler inside UserManager.initHandlers(socket) --
 
-socket.on("chat-message", ({ roomId, message }) => {
-  // Find the room
-  const foundRoom = this.roomManager.getRoomBySocketId(socket.id);
-  if (!foundRoom) return;
+    socket.on("chat-message", ({ roomId, message }) => {
+      // Find the room
+      const foundRoom = this.roomManager.getRoomBySocketId(socket.id);
+      if (!foundRoom) return;
 
-  // Find sender and peer
-  const sender = foundRoom.room.user1.socket.id === socket.id ? foundRoom.room.user1 : foundRoom.room.user2;
-  const peer = foundRoom.room.user1.socket.id === socket.id ? foundRoom.room.user2 : foundRoom.room.user1;
+      // Find sender and peer
+      const sender =
+        foundRoom.room.user1.socket.id === socket.id
+          ? foundRoom.room.user1
+          : foundRoom.room.user2;
+      const peer =
+        foundRoom.room.user1.socket.id === socket.id
+          ? foundRoom.room.user2
+          : foundRoom.room.user1;
 
-  // Relay the chat message to the peer
-  peer.socket.emit("chat-message", {
-    senderName: sender.name,
-    senderId: sender.socket.id,
-    message,
-    timestamp: Date.now(),
-  });
-});
+      // Relay the chat message to the peer
+      peer.socket.emit("chat-message", {
+        senderName: sender.name,
+        senderId: sender.socket.id,
+        message,
+        timestamp: Date.now(),
+      });
+    });
   }
 }

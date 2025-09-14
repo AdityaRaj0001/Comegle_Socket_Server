@@ -13,6 +13,12 @@ const userManager = new UserManager();
 io.on("connection", (socket: Socket) => {
   console.log("a user connected");
 
+  socket.on("get-user-count", () => {
+    const count = userManager.getUserCount();
+    // make this user-count event broadcast to all connected clients
+    io.emit("user-count", { count });
+  });
+
   socket.on("register-name", ({ user }) => {
     userManager.addUser(user, socket); // Add user with real name now
   });
@@ -23,11 +29,13 @@ io.on("connection", (socket: Socket) => {
 
   socket.on("exit", () => {
     userManager.exitLobby(socket.id);
+    io.emit("user-count", { count: userManager.getUserCount() });
   });
 
   socket.on("disconnect", () => {
     console.log("user disconnected");
     userManager.removeUser(socket.id); // 🧹 Clean up user
+    socket.emit("get-user-count");
   });
 });
 
