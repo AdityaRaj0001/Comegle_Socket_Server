@@ -1,9 +1,11 @@
 import { Socket } from "socket.io";
 import { RoomManager } from "./RoomManager";
 
-export interface User {
-  socket: Socket;
-  name: string;
+export interface User{
+  name:string;
+  college:string;
+  gender:string;
+  socket:Socket;
 }
 
 export class UserManager {
@@ -21,9 +23,9 @@ export class UserManager {
   //   return this.users.find((user) => user.socket.id === socketId) || null;
   // }
 
-  addUser(name: string, socket: Socket) {
+  addUser(user: User, socket: Socket) {
     this.users.push({
-      name,
+      ...user,
       socket,
     });
     this.queue.push(socket.id);

@@ -13,8 +13,8 @@ const userManager = new UserManager();
 io.on("connection", (socket: Socket) => {
   console.log("a user connected");
 
-  socket.on("register-name", ({ name }) => {
-    userManager.addUser(name, socket); // Add user with real name now
+  socket.on("register-name", ({ user }) => {
+    userManager.addUser(user, socket); // Add user with real name now
   });
 
   socket.on("leave-room", () => {
