@@ -1,10 +1,15 @@
 import { Socket } from "socket.io";
 import { RoomManager } from "./RoomManager";
-
+import { updateUserCount } from "../server";
 export interface User {
   name: string;
   college: string;
   gender: string;
+  collegeState: string; // from frontend
+  preferences: {
+    states: string[]; // e.g. ["Delhi", "UP"] or ["*"] for all
+    preferredGender: string[]; // e.g. ["male"], ["female"], or both
+  };
   socket: Socket;
 }
 
@@ -28,14 +33,62 @@ export class UserManager {
     return this.users.length - 1;
   }
 
+  private findMatch(user: User): User | null {
+    for (const queuedId of this.queue) {
+      const candidate = this.users.find((u) => u.socket.id === queuedId);
+      if (!candidate) continue;
+
+      // --- Matching conditions ---
+      const stateMatch =
+        user.preferences.states.includes("*") ||
+        candidate.preferences.states.includes("*") ||
+        user.preferences.states.includes(candidate.collegeState) ||
+        candidate.preferences.states.includes(user.collegeState);
+
+      const genderMatch =
+        (user.preferences.preferredGender.includes("any") ||
+          user.preferences.preferredGender.includes(candidate.gender)) &&
+        (candidate.preferences.preferredGender.includes("any") ||
+          candidate.preferences.preferredGender.includes(user.gender));
+
+      if (stateMatch && genderMatch) {
+        return candidate;
+      }
+    }
+    console.log("No match found for user:", user.name);
+    return null;
+  }
+
   addUser(user: User, socket: Socket) {
-    this.users.push({
-      ...user,
-      socket,
+    const newUser: User = { ...user, socket };
+    const { name, college, gender, collegeState, preferences } = user;
+    console.log("New user added:", {
+      name,
+      college,
+      gender,
+      collegeState,
+      preferences,
+      socketId: socket.id,
     });
-    this.queue.push(socket.id);
+    this.users.push(newUser);
+    updateUserCount();
+    // Try to find a match from the queue
+    const match = this.findMatch(newUser);
     socket.emit("lobby");
-    this.clearQueue();
+
+    if (match) {
+      // Remove match from queue
+      this.queue = this.queue.filter((id) => id !== match.socket.id);
+
+      // Create room immediately
+      this.roomManager.createRoom(newUser, match, this.users);
+      console.log(`Room created between ${newUser.name} and ${match.name}`);
+    } else {
+      // No match found, keep in queue
+      this.queue.push(socket.id);
+      console.log(`User ${newUser.name} added to queue.`);
+    }
+
     this.initHandlers(socket);
   }
 
@@ -57,19 +110,16 @@ export class UserManager {
     if (user) user.name = name;
   }
 
-  removeUser(socketId: string) {
-    const user = this.users.find((x) => x.socket.id === socketId);
+  removeUserFromUsersArrayAndQueue(socketId: string) {
     this.users = this.users.filter((x) => x.socket.id !== socketId);
-    this.queue = this.queue.filter((x) => x === socketId);
+    this.queue = this.queue.filter((x) => x !== socketId);
   }
 
   exitLobby(socketId: string): void {
     const user = this.users.find((u) => u.socket.id === socketId);
     if (!user) return;
 
-    // Remove from queue if in queue i.e he is in the lobby
-    this.queue = this.queue.filter((id) => id !== socketId);
-
+    this.removeUserFromUsersArrayAndQueue(socketId);
     // If in a room, remove room, notify peer, requeue peer
     const foundRoom = this.roomManager.getRoomBySocketId(socketId);
     if (foundRoom) {
@@ -95,29 +145,29 @@ export class UserManager {
       this.queue.push(peerSocket.id);
       this.clearQueue();
     }
-    this.removeUser(socketId);
+
     console.log(`User ${socketId} exited lobby.`);
   }
 
   clearQueue() {
-    console.log("inside clear queues");
-    if (this.queue.length < 2) {
-      return;
+    if (this.queue.length < 2) return;
+
+    // Try to match remaining users in queue
+    const queueCopy = [...this.queue];
+    this.queue = [];
+
+    for (const id of queueCopy) {
+      const user = this.users.find((u) => u.socket.id === id);
+      if (!user) continue;
+
+      const match = this.findMatch(user);
+      if (match) {
+        this.queue = this.queue.filter((x) => x !== match.socket.id);
+        this.roomManager.createRoom(user, match, this.users);
+      } else {
+        this.queue.push(id); // still waiting
+      }
     }
-
-    const id1 = this.queue.pop();
-    const id2 = this.queue.pop();
-
-    const user1 = this.users.find((x) => x.socket.id === id1);
-    const user2 = this.users.find((x) => x.socket.id === id2);
-
-    if (!user1 || !user2) {
-      return;
-    }
-    console.log("creating room");
-
-    const room = this.roomManager.createRoom(user1, user2, this.users);
-    this.clearQueue();
   }
 
   leaveRoom(socketId: string): void {
@@ -137,9 +187,9 @@ export class UserManager {
     // Emit peer-disconnected to the other user
     peerSocket.emit("peer-disconnected");
 
-    // Remove the room and user
+    // Remove the room
     this.roomManager.removeRoom(roomId);
-    // this.removeUser(socketId);
+
     // Push peerSocket.id to the start of the queue, socketId to the end
     this.queue.unshift(peerSocket.id);
     this.queue.push(socketId);

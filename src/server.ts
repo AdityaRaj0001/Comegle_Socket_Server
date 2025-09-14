@@ -10,32 +10,34 @@ const io = new Server(server, {
 
 const userManager = new UserManager();
 
+// ✅ helper function at the top level
+export const updateUserCount = () => {
+  const count = userManager.getUserCount();
+  io.emit("user-count", { count });
+};
+
 io.on("connection", (socket: Socket) => {
   console.log("a user connected");
 
-  socket.on("get-user-count", () => {
-    const count = userManager.getUserCount();
-    // make this user-count event broadcast to all connected clients
-    io.emit("user-count", { count });
-  });
-
   socket.on("register-name", ({ user }) => {
+    // console.log("Registering user:", user);
     userManager.addUser(user, socket); // Add user with real name now
   });
 
+  //skip-kra h user ne I mean exit nhi kra h user ne
   socket.on("leave-room", () => {
     userManager.leaveRoom(socket.id);
   });
 
   socket.on("exit", () => {
     userManager.exitLobby(socket.id);
-    io.emit("user-count", { count: userManager.getUserCount() });
+    updateUserCount();
   });
 
   socket.on("disconnect", () => {
     console.log("user disconnected");
-    userManager.removeUser(socket.id); // 🧹 Clean up user
-    socket.emit("get-user-count");
+    userManager.exitLobby(socket.id);
+    updateUserCount();
   });
 });
 
