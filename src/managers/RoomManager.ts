@@ -29,7 +29,12 @@ export class RoomManager {
       });
     }
   }
+  //create a function to get room by roomId return like this id and room
+  getRoomByRoomId(roomId: string): Room | null {
+    return this.rooms.get(roomId) || null;
+  }
 
+  //need to remove this shit
   getRoomBySocketId(socketId: string): { roomId: string; room: Room } | null {
     for (const [roomId, room] of this.rooms.entries()) {
       if (
@@ -51,18 +56,7 @@ export class RoomManager {
     return null;
   }
 
-  getPeerSocketBySocketId(socketId: string): Socket | null {
-    const roomData = this.getRoomBySocketId(socketId);
-    if (!roomData) return null;
-
-    const { room } = roomData;
-    const { user1, user2 } = room;
-
-    if (user1.socket.id === socketId) return user2.socket;
-    if (user2.socket.id === socketId) return user1.socket;
-
-    return null;
-  }
+ 
 
   removeRoom(roomId: string) {
     this.rooms.delete(roomId);

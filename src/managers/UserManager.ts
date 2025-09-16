@@ -115,40 +115,6 @@ export class UserManager {
     this.queue = this.queue.filter((x) => x !== socketId);
   }
 
-  exitLobby(socketId: string): void {
-    const user = this.users.find((u) => u.socket.id === socketId);
-    if (!user) return;
-
-    this.removeUserFromUsersArrayAndQueue(socketId);
-    // If in a room, remove room, notify peer, requeue peer
-    const foundRoom = this.roomManager.getRoomBySocketId(socketId);
-    if (foundRoom) {
-      const {
-        roomId,
-        room: { user1, user2 },
-      } = foundRoom;
-
-      const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
-        foundRoom.room,
-        socketId
-      );
-
-      if (!peerSocket) return;
-
-      // Notify the peer
-      peerSocket.emit("peer-disconnected");
-
-      // Remove room
-      this.roomManager.removeRoom(roomId);
-
-      // Requeue the peer efficiently
-      this.queue.push(peerSocket.id);
-      this.clearQueue();
-    }
-
-    console.log(`User ${socketId} exited lobby.`);
-  }
-
   clearQueue() {
     if (this.queue.length < 2) return;
 
@@ -170,17 +136,12 @@ export class UserManager {
     }
   }
 
-  leaveRoom(socketId: string): void {
-    const foundRoom = this.roomManager.getRoomBySocketId(socketId);
+  leaveRoom(roomId: string, socketId: string): void {
+    const foundRoom = this.roomManager.getRoomByRoomId(roomId);
     if (!foundRoom) return;
 
-    const {
-      roomId,
-      room: { user1, user2 },
-    } = foundRoom;
-
     const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
-      foundRoom.room,
+      foundRoom,
       socketId
     );
     if (!peerSocket) return;
@@ -197,6 +158,65 @@ export class UserManager {
     console.log(`User ${socketId} left. Room ${roomId} deleted.`);
   }
 
+  exitLobby(socketId: string, roomId: string): void {
+    const user = this.users.find((u) => u.socket.id === socketId);
+    if (!user) return;
+
+    this.removeUserFromUsersArrayAndQueue(socketId);
+    // If in a room, remove room, notify peer, requeue peer
+    const foundRoom = this.roomManager.getRoomByRoomId(roomId);
+    if (foundRoom) {
+      const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
+        foundRoom,
+        socketId
+      );
+
+      if (!peerSocket) return;
+
+      // Notify the peer
+      peerSocket.emit("peer-disconnected");
+
+      // Remove room
+      this.roomManager.removeRoom(roomId);
+
+      // Requeue the peer efficiently
+      this.queue.push(peerSocket.id);
+      this.clearQueue();
+    }
+
+    console.log(`User ${socketId} exited lobby.`);
+  }
+
+  //when user disconnects from the lobby maybe by closing the browser or the tab then this runs
+  disconnectedFromLobby(socketId: string): void {
+    const user = this.users.find((u) => u.socket.id === socketId);
+    if (!user) return;
+
+    this.removeUserFromUsersArrayAndQueue(socketId);
+    // If in a room, remove room, notify peer, requeue peer
+    const foundRoom = this.roomManager.getRoomBySocketId(socketId);
+    if (foundRoom) {
+      const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
+        foundRoom.room,
+        socketId
+      );
+
+      if (!peerSocket) return;
+
+      // Notify the peer
+      peerSocket.emit("peer-disconnected");
+
+      // Remove room
+      this.roomManager.removeRoom(foundRoom.roomId);
+
+      // Requeue the peer efficiently
+      this.queue.push(peerSocket.id);
+      this.clearQueue();
+    }
+
+    console.log(`User ${socketId} exited lobby.`);
+  }
+
   initHandlers(socket: Socket) {
     socket.on("offer", ({ sdp, roomId }: { sdp: string; roomId: string }) => {
       this.roomManager.onOffer(roomId, sdp, socket.id);
@@ -210,14 +230,27 @@ export class UserManager {
       this.roomManager.onIceCandidates(roomId, socket.id, candidate, type);
     });
 
-    socket.on("toggle-video", ({ enabled }) => {
-      const peerSocket = this.roomManager.getPeerSocketBySocketId(socket.id);
+    socket.on("toggle-video", ({ enabled, roomId }) => {
+      const foundRoom = this.roomManager.getRoomByRoomId(roomId);
+      if (!foundRoom) return;
+
+      const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
+        foundRoom,
+        socket.id
+      );
+      if (!peerSocket) return;
       if (!peerSocket) return;
       peerSocket.emit("peer-video-toggled", { enabled });
     });
 
-    socket.on("toggle-audio", ({ enabled }) => {
-      const peerSocket = this.roomManager.getPeerSocketBySocketId(socket.id);
+    socket.on("toggle-audio", ({ enabled, roomId }) => {
+      const foundRoom = this.roomManager.getRoomByRoomId(roomId);
+      if (!foundRoom) return;
+
+      const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
+        foundRoom,
+        socket.id
+      );
       if (!peerSocket) return;
       peerSocket.emit("peer-audio-toggled", { enabled });
     });
@@ -226,18 +259,24 @@ export class UserManager {
 
     socket.on("chat-message", ({ roomId, message }) => {
       // Find the room
-      const foundRoom = this.roomManager.getRoomBySocketId(socket.id);
+      const foundRoom = this.roomManager.getRoomByRoomId(roomId);
+      console.log(
+        "Chat message received in room:",
+        roomId,
+        "Message:",
+        message
+      );
       if (!foundRoom) return;
 
       // Find sender and peer
       const sender =
-        foundRoom.room.user1.socket.id === socket.id
-          ? foundRoom.room.user1
-          : foundRoom.room.user2;
+        foundRoom.user1.socket.id === socket.id
+          ? foundRoom.user1
+          : foundRoom.user2;
       const peer =
-        foundRoom.room.user1.socket.id === socket.id
-          ? foundRoom.room.user2
-          : foundRoom.room.user1;
+        foundRoom.user1.socket.id === socket.id
+          ? foundRoom.user2
+          : foundRoom.user1;
 
       // Relay the chat message to the peer
       peer.socket.emit("chat-message", {

@@ -25,18 +25,18 @@ io.on("connection", (socket: Socket) => {
   });
 
   //skip-kra h user ne I mean exit nhi kra h user ne
-  socket.on("leave-room", () => {
-    userManager.leaveRoom(socket.id);
+  socket.on("leave-room", ({ roomId }) => {
+    userManager.leaveRoom(roomId, socket.id);
   });
 
-  socket.on("exit", () => {
-    userManager.exitLobby(socket.id);
+  socket.on("exit", ({ roomId }) => {
+    userManager.exitLobby(socket.id, roomId);
     updateUserCount();
   });
 
   socket.on("disconnect", () => {
     console.log("user disconnected");
-    userManager.exitLobby(socket.id);
+    userManager.disconnectedFromLobby(socket.id);
     updateUserCount();
   });
 });
