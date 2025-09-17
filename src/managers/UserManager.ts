@@ -39,7 +39,10 @@ export class UserManager {
   // }
 
   //make a function to return the length of users array
-  getUserCount(): number {
+  getUserCount(topic?: string): number {
+    if (topic) {
+      return this.topicUsers[topic]?.length - 1 || 0;
+    }
     return this.users.length - 1;
   }
 
@@ -104,7 +107,7 @@ export class UserManager {
     this.topicUsers[topic].push({ ...user, socket });
     this.topicQueues[topic].push(socket.id);
     this.userIndex.set(socket.id, { type: "topic", topic });
-
+    updateUserCount(topic);
     socket.emit("lobby");
     this.clearTopicQueue(topic);
     this.initHandlers(socket);
@@ -320,6 +323,12 @@ export class UserManager {
           );
         }
       }
+    }
+
+    if(meta.type === "topic") {
+      updateUserCount(meta.topic);
+    } else {
+      updateUserCount();
     }
 
     console.log(`User ${socketId} disconnected and cleaned up.`);

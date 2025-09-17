@@ -11,9 +11,24 @@ const io = new Server(server, {
 const userManager = new UserManager();
 
 // ✅ helper function at the top level
-export const updateUserCount = () => {
-  const count = userManager.getUserCount();
-  io.emit("user-count", { count });
+export const updateUserCount = (topic?: string) => {
+  const count = userManager.getUserCount(topic);
+
+  switch (topic) {
+    case "dsa":
+      io.emit("user-count-dsa", { count });
+      break;
+    case "cp":
+      io.emit("user-count-cp", { count });
+      break;
+    case "sports":
+      io.emit("user-count-sports", { count });
+      break;
+    default:
+      // General lobby
+      io.emit("user-count", { count });
+      break;
+  }
 };
 
 io.on("connection", (socket: Socket) => {
@@ -64,7 +79,7 @@ io.on("connection", (socket: Socket) => {
    */
   socket.on("exit-topic", ({ topic, roomId }) => {
     userManager.exitTopicLobby(socket.id, topic, roomId);
-    updateUserCount();
+    updateUserCount(topic);
   });
 
   /**
@@ -75,7 +90,6 @@ io.on("connection", (socket: Socket) => {
   socket.on("disconnect", () => {
     console.log("user disconnected");
     userManager.disconnectedFromLobby(socket.id);
-    updateUserCount();
   });
 });
 
