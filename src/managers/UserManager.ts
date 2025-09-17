@@ -356,7 +356,6 @@ export class UserManager {
         socket.id
       );
       if (!peerSocket) return;
-      if (!peerSocket) return;
       peerSocket.emit("peer-video-toggled", { enabled });
     });
 
