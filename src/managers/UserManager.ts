@@ -16,11 +16,21 @@ export interface User {
 export class UserManager {
   private users: User[];
   private queue: string[];
+
+  private topicUsers: Record<string, User[]> = {};
+  private topicQueues: Record<string, string[]> = {};
+  private userIndex: Map<
+    string,
+    { type: "general" | "topic"; topic?: string; roomId?: string }
+  >;
   private roomManager: RoomManager;
 
   constructor() {
     this.users = [];
     this.queue = [];
+    this.topicUsers = {};
+    this.topicQueues = {};
+    this.userIndex = new Map();
     this.roomManager = new RoomManager();
   }
 
@@ -62,14 +72,7 @@ export class UserManager {
   addUser(user: User, socket: Socket) {
     const newUser: User = { ...user, socket };
     const { name, college, gender, collegeState, preferences } = user;
-    console.log("New user added:", {
-      name,
-      college,
-      gender,
-      collegeState,
-      preferences,
-      socketId: socket.id,
-    });
+    this.userIndex.set(socket.id, { type: "general" });
     this.users.push(newUser);
     updateUserCount();
     // Try to find a match from the queue
@@ -81,7 +84,9 @@ export class UserManager {
       this.queue = this.queue.filter((id) => id !== match.socket.id);
 
       // Create room immediately
-      this.roomManager.createRoom(newUser, match, this.users);
+      const roomId = this.roomManager.createRoom(newUser, match);
+      this.userIndex.get(newUser.socket.id)!.roomId = roomId;
+      this.userIndex.get(match.socket.id)!.roomId = roomId;
       console.log(`Room created between ${newUser.name} and ${match.name}`);
     } else {
       // No match found, keep in queue
@@ -89,6 +94,19 @@ export class UserManager {
       console.log(`User ${newUser.name} added to queue.`);
     }
 
+    this.initHandlers(socket);
+  }
+
+  addTopicUser(user: User, socket: Socket, topic: string) {
+    if (!this.topicUsers[topic]) this.topicUsers[topic] = [];
+    if (!this.topicQueues[topic]) this.topicQueues[topic] = [];
+
+    this.topicUsers[topic].push({ ...user, socket });
+    this.topicQueues[topic].push(socket.id);
+    this.userIndex.set(socket.id, { type: "topic", topic });
+
+    socket.emit("lobby");
+    this.clearTopicQueue(topic);
     this.initHandlers(socket);
   }
 
@@ -115,6 +133,16 @@ export class UserManager {
     this.queue = this.queue.filter((x) => x !== socketId);
   }
 
+  removeUserFromUsersTopicsArrayAndTopicQueue(socketId: string, topic: string) {
+    if (!this.topicUsers[topic]) return;
+    this.topicUsers[topic] = this.topicUsers[topic].filter(
+      (x) => x.socket.id !== socketId
+    );
+    this.topicQueues[topic] = this.topicQueues[topic].filter(
+      (id) => id !== socketId
+    );
+  }
+
   clearQueue() {
     if (this.queue.length < 2) return;
 
@@ -129,11 +157,29 @@ export class UserManager {
       const match = this.findMatch(user);
       if (match) {
         this.queue = this.queue.filter((x) => x !== match.socket.id);
-        this.roomManager.createRoom(user, match, this.users);
+        const roomId = this.roomManager.createRoom(user, match);
+        this.userIndex.get(user.socket.id)!.roomId = roomId;
+        this.userIndex.get(match.socket.id)!.roomId = roomId;
       } else {
         this.queue.push(id); // still waiting
       }
     }
+  }
+
+  clearTopicQueue(topic: string) {
+    if (this.topicQueues[topic].length < 2) return;
+
+    const id1 = this.topicQueues[topic].pop();
+    const id2 = this.topicQueues[topic].pop();
+    const user1 = this.topicUsers[topic].find((x) => x.socket.id === id1);
+    const user2 = this.topicUsers[topic].find((x) => x.socket.id === id2);
+    if (!user1 || !user2) return;
+
+    const roomId = this.roomManager.createRoom(user1, user2);
+    this.userIndex.get(user1.socket.id)!.roomId = roomId;
+    this.userIndex.get(user2.socket.id)!.roomId = roomId;
+
+    this.clearTopicQueue(topic);
   }
 
   leaveRoom(roomId: string, socketId: string): void {
@@ -148,14 +194,35 @@ export class UserManager {
     // Emit peer-disconnected to the other user
     peerSocket.emit("peer-disconnected");
 
-    // Remove the room
-    this.roomManager.removeRoom(roomId);
+    // Remove the room (clears roomIds of both users)
+    this.roomManager.removeRoomOnLeave(roomId, this.userIndex);
 
     // Push peerSocket.id to the start of the queue, socketId to the end
     this.queue.unshift(peerSocket.id);
     this.queue.push(socketId);
     this.clearQueue();
     console.log(`User ${socketId} left. Room ${roomId} deleted.`);
+  }
+
+  leaveTopicRoom(socketId: string, topic: string, roomId: string): void {
+    const foundRoom = this.roomManager.getRoomByRoomId(roomId);
+    if (!foundRoom) return;
+
+    const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
+      foundRoom,
+      socketId
+    );
+    if (!peerSocket) return;
+
+    peerSocket.emit("peer-disconnected");
+    // Remove the room (clears roomIds of both users)
+    this.roomManager.removeRoomOnLeave(roomId, this.userIndex);
+
+    this.topicQueues[topic].unshift(peerSocket.id);
+    this.topicQueues[topic].push(socketId);
+    this.clearTopicQueue(topic);
+
+    console.log(`User ${socketId} left topic room ${roomId} in ${topic}`);
   }
 
   exitLobby(socketId: string, roomId: string): void {
@@ -176,8 +243,8 @@ export class UserManager {
       // Notify the peer
       peerSocket.emit("peer-disconnected");
 
-      // Remove room
-      this.roomManager.removeRoom(roomId);
+      // Remove the room (clears roomId of user who left the lobby and makes the peer's roomId undefined)
+      this.roomManager.removeRoomOnExit(roomId, socketId, this.userIndex);
 
       // Requeue the peer efficiently
       this.queue.push(peerSocket.id);
@@ -187,34 +254,75 @@ export class UserManager {
     console.log(`User ${socketId} exited lobby.`);
   }
 
+  exitTopicLobby(socketId: string, topic: string, roomId: string): void {
+    if (!this.topicQueues[topic]) return;
+    this.removeUserFromUsersTopicsArrayAndTopicQueue(socketId, topic);
+
+    const foundRoom = this.roomManager.getRoomByRoomId(roomId);
+    if (!foundRoom) return;
+
+    const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
+      foundRoom,
+      socketId
+    );
+    if (!peerSocket) return;
+
+    peerSocket.emit("peer-disconnected");
+    // Remove the room (clears roomId of user who left the lobby and makes the peer's roomId undefined)
+    this.roomManager.removeRoomOnExit(roomId, socketId, this.userIndex);
+
+    this.topicQueues[topic].push(peerSocket.id);
+    this.clearTopicQueue(topic);
+
+    console.log(`User ${socketId} exited topic lobby ${topic}.`);
+  }
+
   //when user disconnects from the lobby maybe by closing the browser or the tab then this runs
   disconnectedFromLobby(socketId: string): void {
-    const user = this.users.find((u) => u.socket.id === socketId);
-    if (!user) return;
+    const meta = this.userIndex.get(socketId);
+    if (!meta) return;
 
-    this.removeUserFromUsersArrayAndQueue(socketId);
-    // If in a room, remove room, notify peer, requeue peer
-    const foundRoom = this.roomManager.getRoomBySocketId(socketId);
-    if (foundRoom) {
-      const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
-        foundRoom.room,
-        socketId
-      );
-
-      if (!peerSocket) return;
-
-      // Notify the peer
-      peerSocket.emit("peer-disconnected");
-
-      // Remove room
-      this.roomManager.removeRoom(foundRoom.roomId);
-
-      // Requeue the peer efficiently
-      this.queue.push(peerSocket.id);
-      this.clearQueue();
+    // 🧹 Remove from user arrays and queues
+    if (meta.type === "general") {
+      this.removeUserFromUsersArrayAndQueue(socketId);
+    } else {
+      this.removeUserFromUsersTopicsArrayAndTopicQueue(socketId, meta.topic!);
     }
 
-    console.log(`User ${socketId} exited lobby.`);
+    // ⚡ If in a room, handle peer cleanup
+    if (meta.roomId) {
+      const foundRoom = this.roomManager.getRoomByRoomId(meta.roomId);
+      if (foundRoom) {
+        const peerSocket = this.roomManager.getPeerSocketFromRoomBySocketId(
+          foundRoom,
+          socketId
+        );
+
+        if (peerSocket) {
+          // Notify peer
+          peerSocket.emit("peer-disconnected");
+
+          // Requeue the peer in their correct queue
+          const peerMeta = this.userIndex.get(peerSocket.id);
+          if (peerMeta?.type === "general") {
+            this.queue.push(peerSocket.id);
+            this.clearQueue();
+          } else if (peerMeta?.type === "topic" && peerMeta.topic) {
+            this.topicQueues[peerMeta.topic].push(peerSocket.id);
+            this.clearTopicQueue(peerMeta.topic);
+          }
+
+          // Remove the room (clears roomIds of both users)
+          this.roomManager.removeRoomOnExit(
+            meta.roomId,
+            socketId,
+            this.userIndex
+          );
+        }
+      }
+    }
+
+    console.log(`User ${socketId} disconnected and cleaned up.`);
   }
 
   initHandlers(socket: Socket) {

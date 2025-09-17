@@ -56,13 +56,52 @@ export class RoomManager {
     return null;
   }
 
- 
+  // 🧹 When users just leave but stay in lobby
+  removeRoomOnLeave(
+    roomId: string,
+    userIndex: Map<string, { type: string; topic?: string; roomId?: string }>
+  ) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
 
-  removeRoom(roomId: string) {
+    const { user1, user2 } = room;
+
+    const u1 = userIndex.get(user1.socket.id);
+    if (u1) u1.roomId = undefined;
+
+    const u2 = userIndex.get(user2.socket.id);
+    if (u2) u2.roomId = undefined;
+
     this.rooms.delete(roomId);
+    console.log(`Room ${roomId} removed (leave).`);
   }
 
-  createRoom(user1: User, user2: User, allUsers: User[]) {
+  // 🗑️ When one user exits or disconnects from lobby entirely
+  removeRoomOnExit(
+    roomId: string,
+    exitingSocketId: string,
+    userIndex: Map<string, { type: string; topic?: string; roomId?: string }>
+  ) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+
+    const { user1, user2 } = room;
+
+    const peerSocketId =
+      user1.socket.id === exitingSocketId ? user2.socket.id : user1.socket.id;
+
+    // Clear peer's roomId
+    const peerMeta = userIndex.get(peerSocketId);
+    if (peerMeta) peerMeta.roomId = undefined;
+
+    // Remove exiting user entirely
+    userIndex.delete(exitingSocketId);
+
+    this.rooms.delete(roomId);
+    console.log(`Room ${roomId} removed (exit/disconnect).`);
+  }
+
+  createRoom(user1: User, user2: User) {
     const roomId = this.generate().toString();
 
     this.rooms.set(roomId.toString(), {
@@ -77,6 +116,7 @@ export class RoomManager {
     user2.socket.emit("send-offer", {
       roomId,
     });
+    return roomId;
   }
 
   onOffer(roomId: string, sdp: string, senderSocketid: string) {
