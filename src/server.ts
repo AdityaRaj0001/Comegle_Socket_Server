@@ -12,27 +12,40 @@ const userManager = new UserManager();
 
 // ✅ helper function at the top level
 export const updateUserCount = (topic?: string) => {
-  const count = userManager.getUserCount(topic);
-
-  switch (topic) {
-    case "dsa":
-      io.emit("user-count-dsa", { count });
-      break;
-    case "cp":
-      io.emit("user-count-cp", { count });
-      break;
-    case "sports":
-      io.emit("user-count-sports", { count });
-      break;
-    default:
-      // General lobby
-      io.emit("user-count", { count });
-      break;
+  if (topic) {
+    const count = userManager.getLobbyUserCount(topic);
+    io.emit(`user-count-${topic}`, count);
+  } else {
+    const generalCount = userManager.getLobbyUserCount();
+    io.emit("user-count", generalCount);
   }
+  // 🟢 Always send combined snapshot too
+  broadcastTotalUserCount();
+};
+
+const broadcastTotalUserCount = () => {
+  const general = userManager.getTotalUserCount();
+  const topics = {
+    dsa: userManager.getTotalUserCount("dsa"),
+    cp: userManager.getTotalUserCount("cp"),
+    sports: userManager.getTotalUserCount("sports"),
+  };
+  //broadcast to all
+  io.emit("total-user-count-update", { general, topics });
 };
 
 io.on("connection", (socket: Socket) => {
   console.log("a user connected");
+
+  // This is just a snapshot to this one socket
+  socket.emit("total-user-count-update", {
+    general: userManager.getTotalUserCount(),
+    topics: {
+      dsa: userManager.getTotalUserCount("dsa"),
+      cp: userManager.getTotalUserCount("cp"),
+      sports: userManager.getTotalUserCount("sports"),
+    },
+  });
 
   socket.on("register-name", ({ user }) => {
     // 👤 Register a new general user (enters general lobby)

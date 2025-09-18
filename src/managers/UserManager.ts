@@ -34,16 +34,18 @@ export class UserManager {
     this.roomManager = new RoomManager();
   }
 
-  // getUserBySocketId(socketId: string): User | null {
-  //   return this.users.find((user) => user.socket.id === socketId) || null;
-  // }
-
-  //make a function to return the length of users array
-  getUserCount(topic?: string): number {
+  //make a function to return the length of users/topicUsers array
+  getLobbyUserCount(topic?: string): number {
     if (topic) {
       return this.topicUsers[topic]?.length - 1 || 0;
     }
     return this.users.length - 1;
+  }
+  getTotalUserCount(topic?: string): number {
+    if (topic) {
+      return this.topicUsers[topic]?.length || 0;
+    }
+    return this.users.length;
   }
 
   private findMatch(user: User): User | null {
@@ -75,12 +77,11 @@ export class UserManager {
   addUser(user: User, socket: Socket) {
     const newUser: User = { ...user, socket };
     const { name, college, gender, collegeState, preferences } = user;
-    this.userIndex.set(socket.id, { type: "general" });
     this.users.push(newUser);
+    this.userIndex.set(socket.id, { type: "general" });
     updateUserCount();
     // Try to find a match from the queue
     const match = this.findMatch(newUser);
-    socket.emit("lobby");
 
     if (match) {
       // Remove match from queue
@@ -108,7 +109,7 @@ export class UserManager {
     this.topicQueues[topic].push(socket.id);
     this.userIndex.set(socket.id, { type: "topic", topic });
     updateUserCount(topic);
-    socket.emit("lobby");
+
     this.clearTopicQueue(topic);
     this.initHandlers(socket);
   }
@@ -172,7 +173,7 @@ export class UserManager {
   clearTopicQueue(topic: string) {
     if (this.topicQueues[topic].length < 2) return;
 
-    const id1 = this.topicQueues[topic].pop();
+    const id1 = this.topicQueues[topic].pop(); // this is LIFO should be changed to FIFO
     const id2 = this.topicQueues[topic].pop();
     const user1 = this.topicUsers[topic].find((x) => x.socket.id === id1);
     const user2 = this.topicUsers[topic].find((x) => x.socket.id === id2);
@@ -246,7 +247,7 @@ export class UserManager {
       // Notify the peer
       peerSocket.emit("peer-disconnected");
 
-      // Remove the room (clears roomId of user who left the lobby and makes the peer's roomId undefined)
+      // Remove the room (clears entry  of user from userIndex map who left the lobby and makes the peer's roomId undefined)
       this.roomManager.removeRoomOnExit(roomId, socketId, this.userIndex);
 
       // Requeue the peer efficiently
@@ -325,7 +326,7 @@ export class UserManager {
       }
     }
 
-    if(meta.type === "topic") {
+    if (meta.type === "topic") {
       updateUserCount(meta.topic);
     } else {
       updateUserCount();
