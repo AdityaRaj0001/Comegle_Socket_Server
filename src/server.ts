@@ -29,6 +29,14 @@ const broadcastTotalUserCount = () => {
     dsa: userManager.getTotalUserCount("dsa"),
     cp: userManager.getTotalUserCount("cp"),
     sports: userManager.getTotalUserCount("sports"),
+    ai: userManager.getTotalUserCount("ai"),
+    chess: userManager.getTotalUserCount("chess"),
+    openSource: userManager.getTotalUserCount("openSource"),
+    startups: userManager.getTotalUserCount("startups"),
+    movies: userManager.getTotalUserCount("movies"),
+    gaming: userManager.getTotalUserCount("gaming"),
+    mockInterviews: userManager.getTotalUserCount("mockInterviews"),
+    music: userManager.getTotalUserCount("music"),
   };
   //broadcast to all
   io.emit("total-user-count-update", { general, topics });
@@ -44,6 +52,14 @@ io.on("connection", (socket: Socket) => {
       dsa: userManager.getTotalUserCount("dsa"),
       cp: userManager.getTotalUserCount("cp"),
       sports: userManager.getTotalUserCount("sports"),
+      ai: userManager.getTotalUserCount("ai"),
+      chess: userManager.getTotalUserCount("chess"),
+      openSource: userManager.getTotalUserCount("openSource"),
+      startups: userManager.getTotalUserCount("startups"),
+      movies: userManager.getTotalUserCount("movies"),
+      gaming: userManager.getTotalUserCount("gaming"),
+      mockInterviews: userManager.getTotalUserCount("mockInterviews"),
+      music: userManager.getTotalUserCount("music"),
     },
   });
 
